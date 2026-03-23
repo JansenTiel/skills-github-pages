@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Huidige voorraad</title>
+  <link rel="stylesheet" href="/css/theme.css"/>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="/js/supabase.js"></script>
+  <script src="/js/app.js"></script>
+  <script src="/js/auth.js"></script>
+
+  <style>
+    .stock-group{
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:#fff;
+      overflow:hidden;
+      margin-bottom:12px;
+    }
+
+    .stock-group-head{
+      width:100%;
+      border:none;
+      background:#fff;
+      cursor:pointer;
+      padding:14px 16px;
+      text-align:left;
+      display:grid;
+      grid-template-columns:180px 1fr 120px 36px;
+      gap:12px;
+      align-items:center;
+    }
+
+    .stock-group-head:hover{
+      background:#fafbfc;
+    }
+
+    .sg-sku{
+      font-size:18px;
+      font-weight:900;
+      color:var(--navy);
+    }
+
+    .sg-name b{
+      display:block;
+      font-size:16px;
+      line-height:1.2;
+      color:var(--text);
+      margin-bottom:4px;
+    }
+
+    .sg-name span{
+      display:block;
+      font-size:13px;
+      color:var(--muted);
+      line-height:1.3;
+    }
+
+    .sg-total{
+      text-align:right;
+    }
+
+    .sg-total .n{
+      font-size:28px;
+      font-weight:900;
+      color:var(--navy);
+      line-height:1;
+    }
+
+    .sg-total .t{
+      font-size:12px;
+      color:var(--muted);
+      font-weight:800;
+      text-transform:uppercase;
+      letter-spacing:.04em;
+      margin-top:4px;
+    }
+
+    .sg-arrow{
+      width:36px;
+      height:36px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:18px;
+      font-weight:900;
+      color:var(--navy);
+      background:#fff;
+      transition:transform .18s ease;
+    }
+
+    .stock-group.open .sg-arrow{
+      transform:rotate(180deg);
+    }
+
+    .stock-group-body{
+      display:none;
+      padding:0 16px 16px 16px;
+      border-top:1px solid var(--border);
+      background:#fcfcfd;
+    }
+
+    .stock-group.open .stock-group-body{
+      display:block;
+    }
+
+    .stock-toolbar{
+      display:grid;
+      grid-template-columns:1fr 1fr auto auto;
+      gap:14px;
+      align-items:end;
+    }
+
+    @media(max-width:980px){
+      .stock-toolbar{
+        grid-template-columns:1fr 1fr;
+      }
+      .stock-group-head{
+        grid-template-columns:1fr auto;
+        grid-template-areas:
+          "sku total"
+          "name arrow";
+        gap:8px 12px;
+      }
+      .sg-sku{grid-area:sku}
+      .sg-name{grid-area:name}
+      .sg-total{grid-area:total}
+      .sg-arrow{grid-area:arrow;justify-self:end}
+    }
+
+    @media(max-width:700px){
+      .stock-toolbar{
+        grid-template-columns:1fr;
+      }
+    }
+
+    .mobile-cards{
+      display:none;
+      flex-direction:column;
+      gap:10px;
+      margin-top:12px;
+    }
+
+    .mobile-card{
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#fff;
+      padding:12px;
+    }
+
+    .mobile-line{
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:6px;
+    }
+
+    .mobile-line:last-child{
+      margin-bottom:0;
+    }
+
+    .mobile-k{
+      font-size:12px;
+      font-weight:800;
+      color:var(--muted);
+      text-transform:uppercase;
+      letter-spacing:.04em;
+      min-width:95px;
+    }
+
+    .mobile-v{
+      text-align:right;
+      font-size:14px;
+      color:var(--text);
+      word-break:break-word;
+    }
+
+    @media(max-width:760px){
+      .desktop-detail-table{
+        display:none;
+      }
+      .mobile-cards{
+        display:flex;
+      }
+    }
+  </style>
+</head>
+
+<body data-page="stock">
+  <div class="topbar no-print">
+    <div class="inner">
+      <div class="brand">
+        <div class="logo">o</div>
+        <div class="title">
+          Oegema Logistics
+          <small>Ronald Verdult Design · Voorraadbeheer</small>
+        </div>
+      </div>
+
+      <nav class="nav">
+        <a href='/'>Dashboard</a>
+        <a href='/products'>Artikelen + Stickers</a>
+        <a href='/scan'>In-/Uitscan</a>
+        <a href='/stock'>Huidige voorraad</a>
+        <a href='/outscans'>Uitscans</a>
+      </nav>
+
+      <div class="rightbar">
+        <span class="pill"><span id="userEmail"></span></span>
+        <button class="btn" id="btnLogout" type="button">Uitloggen</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <div id="toast" class="notice"></div>
+
+    <div class="card">
+      <h2>Huidige voorraad</h2>
+      <div class="muted">
+        Overzicht per <b>SKU</b> met totaal aantal op voorraad. Klik op een regel om alle geregistreerde items van die SKU te tonen.
+      </div>
+
+      <div class="stock-toolbar" style="margin-top:14px">
+        <div>
+          <label for="q">Zoeken</label>
+          <input id="q" placeholder="SKU / omschrijving / locatie / unieke SKU"/>
+        </div>
+
+        <div>
+          <label for="sort">Sorteren op</label>
+          <select id="sort">
+            <option value="sku_asc">SKU A-Z</option>
+            <option value="sku_desc">SKU Z-A</option>
+            <option value="name_asc">Omschrijving A-Z</option>
+            <option value="qty_desc">Hoogste voorraad eerst</option>
+            <option value="qty_asc">Laagste voorraad eerst</option>
+          </select>
+        </div>
+
+        <div>
+          <label>&nbsp;</label>
+          <button class="btn primary" id="btn_refresh" type="button" style="width:100%">Verversen</button>
+        </div>
+
+        <div>
+          <label>&nbsp;</label>
+          <button class="btn" id="btn_export" type="button" style="width:100%">Download Excel</button>
+        </div>
+      </div>
+
+      <div class="row-3" style="margin-top:16px">
+        <div class="card" style="padding:16px">
+          <div class="kpi">
+            <div class="label">Aantal SKU's</div>
+            <div class="value" id="stockSkuCount">0</div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:16px">
+          <div class="kpi">
+            <div class="label">Totaal items</div>
+            <div class="value" id="stockItemCount">0</div>
+          </div>
+        </div>
+
+        <div class="card" style="padding:16px">
+          <div class="kpi">
+            <div class="label">Gefilterd</div>
+            <div class="value" id="stockFilteredCount">0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div id="list"></div>
+    </div>
+  </div>
+
+<script>
+setActiveNav();
+const client = sb();
+
+function groupItems(items){
+  const map = new Map();
+
+  (items || []).forEach(it => {
+    const key = it.sku_base || "ZONDER-SKU";
+
+    if(!map.has(key)){
+      map.set(key, {
+        sku_base: it.sku_base || "",
+        name: it.name || "",
+        description: it.description || "",
+        items: []
+      });
+    }
+
+    map.get(key).items.push(it);
+  });
+
+  return Array.from(map.values());
+}
+
+function sortGroups(groups, sort){
+  const rows = [...groups];
+  const cmp = (a,b) => String(a ?? '').localeCompare(String(b ?? ''), 'nl');
+
+  if(sort === 'sku_asc') rows.sort((a,b) => cmp(a.sku_base, b.sku_base));
+  if(sort === 'sku_desc') rows.sort((a,b) => cmp(b.sku_base, a.sku_base));
+  if(sort === 'name_asc') rows.sort((a,b) => cmp(a.name, b.name));
+  if(sort === 'qty_desc') rows.sort((a,b) => b.items.length - a.items.length || cmp(a.sku_base,b.sku_base));
+  if(sort === 'qty_asc') rows.sort((a,b) => a.items.length - b.items.length || cmp(a.sku_base,b.sku_base));
+
+  rows.forEach(g => {
+    g.items.sort((a,b) => new Date(b.in_at || b.created_at) - new Date(a.in_at || a.created_at));
+  });
+
+  return rows;
+}
+
+function makeGroupHtml(group, idx){
+  const desc = group.description ? escapeHtml(group.description) : 'Geen extra vermelding';
+  const bodyId = `group_${idx}`;
+
+  return `
+    <div class="stock-group">
+      <button class="stock-group-head" type="button" data-target="${bodyId}" aria-expanded="false">
+        <div class="sg-sku">${escapeHtml(group.sku_base)}</div>
+
+        <div class="sg-name">
+          <b>${escapeHtml(group.name)}</b>
+          <span>${desc}</span>
+        </div>
+
+        <div class="sg-total">
+          <div class="n">${group.items.length}</div>
+          <div class="t">op voorraad</div>
+        </div>
+
+        <div class="sg-arrow">⌄</div>
+      </button>
+
+      <div class="stock-group-body" id="${bodyId}">
+        <div class="table-wrap desktop-detail-table" style="margin-top:12px">
+          <table>
+            <thead>
+              <tr>
+                <th>Inslag tijd</th>
+                <th>Unieke SKU</th>
+                <th>Locatie</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${group.items.map(it => `
+                <tr>
+                  <td>${nlTime(it.in_at || it.created_at)}</td>
+                  <td><b>${escapeHtml(it.sku_unique)}</b></td>
+                  <td>${escapeHtml(it.location || '')}</td>
+                  <td>${escapeHtml(it.status || '')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mobile-cards">
+          ${group.items.map(it => `
+            <div class="mobile-card">
+              <div class="mobile-line">
+                <div class="mobile-k">Inslag</div>
+                <div class="mobile-v">${nlTime(it.in_at || it.created_at)}</div>
+              </div>
+              <div class="mobile-line">
+                <div class="mobile-k">Unieke SKU</div>
+                <div class="mobile-v"><b>${escapeHtml(it.sku_unique)}</b></div>
+              </div>
+              <div class="mobile-line">
+                <div class="mobile-k">Locatie</div>
+                <div class="mobile-v">${escapeHtml(it.location || '')}</div>
+              </div>
+              <div class="mobile-line">
+                <div class="mobile-k">Status</div>
+                <div class="mobile-v">${escapeHtml(it.status || '')}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function bindExpanders(){
+  document.querySelectorAll('.stock-group-head').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const wrap = btn.closest('.stock-group');
+      const open = wrap.classList.toggle('open');
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+  });
+}
+
+function exportGroupedToExcel(groups){
+  const rows = [];
+
+  groups.forEach(group => {
+    rows.push({
+      SKU: group.sku_base,
+      Omschrijving: group.name,
+      'Overige vermelding': group.description || '',
+      'Totaal op voorraad': group.items.length,
+      'Unieke SKU': '',
+      'Locatie': '',
+      'Inslag tijd': '',
+      'Status': ''
+    });
+
+    group.items.forEach(it => {
+      rows.push({
+        SKU: '',
+        Omschrijving: '',
+        'Overige vermelding': '',
+        'Totaal op voorraad': '',
+        'Unieke SKU': it.sku_unique || '',
+        'Locatie': it.location || '',
+        'Inslag tijd': nlTime(it.in_at || it.created_at),
+        'Status': it.status || ''
+      });
+    });
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws["!cols"] = [
+    { wch: 16 },
+    { wch: 30 },
+    { wch: 24 },
+    { wch: 16 },
+    { wch: 24 },
+    { wch: 18 },
+    { wch: 22 },
+    { wch: 14 }
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, 'Voorraad');
+
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const filename = `huidige_voorraad_${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}.xlsx`;
+  XLSX.writeFile(wb, filename);
+}
+
+let currentGroups = [];
+
+async function load(){
+  const q = (byId('q').value || '').trim();
+  const sort = byId('sort').value;
+
+  let query = client.from('v_stock_items').select('*').limit(5000);
+
+  if(q){
+    query = query.or(`sku_unique.ilike.%${q}%,sku_base.ilike.%${q}%,name.ilike.%${q}%,location.ilike.%${q}%`);
+  }
+
+  const { data, error } = await query;
+  if(error) throw error;
+
+  const items = data || [];
+  const groups = sortGroups(groupItems(items), sort);
+  currentGroups = groups;
+
+  byId('stockSkuCount').textContent = `${groups.length}`;
+  byId('stockItemCount').textContent = `${items.length}`;
+  byId('stockFilteredCount').textContent = `${items.length}`;
+
+  const el = byId('list');
+
+  if(!groups.length){
+    el.innerHTML = `<div class="card" style="box-shadow:none;border:none">Geen voorraad gevonden.</div>`;
+    return;
+  }
+
+  el.innerHTML = groups.map((g, i) => makeGroupHtml(g, i)).join('');
+  bindExpanders();
+}
+
+byId('btn_refresh').addEventListener('click', () => load().catch(e => toast(e.message || String(e), 'err')));
+byId('q').addEventListener('keydown', e => {
+  if(e.key === 'Enter') load().catch(err => toast(err.message || String(err), 'err'));
+});
+byId('sort').addEventListener('change', () => load().catch(e => toast(e.message || String(e), 'err')));
+byId('btn_export').addEventListener('click', () => exportGroupedToExcel(currentGroups));
+
+load().catch(e => toast(e.message || String(e), 'err'));
+</script>
+</body>
+</html>
