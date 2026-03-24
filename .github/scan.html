@@ -1,0 +1,874 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+  <title>Scan</title>
+  <link rel="stylesheet" href="/css/theme.css"/>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/js/supabase.js"></script>
+  <script src="/js/app.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+
+  <style>
+    .scan-shell{max-width:1020px;margin:0 auto}
+    .scan-top{
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+      align-items:flex-end;
+    }
+    .scan-toolbar{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-top:16px;
+    }
+    .scan-toolbar .btn{min-width:170px}
+    .batch-box,
+    .new-product-box,
+    .qr-box{
+      margin-top:16px;
+      border:1px solid var(--border);
+      border-radius:14px;
+      background:#fff;
+      padding:14px;
+    }
+    .batch-head,
+    .new-product-head,
+    .qr-top{
+      display:flex;
+      justify-content:space-between;
+      gap:12px;
+      align-items:center;
+      flex-wrap:wrap;
+      margin-bottom:12px;
+    }
+    .batch-actions{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+    }
+    .scan-help{
+      margin-top:10px;
+      font-size:12px;
+      color:var(--muted);
+    }
+    .big-input{
+      font-size:18px;
+      font-weight:700;
+      padding:14px 16px;
+    }
+    .batch-empty{
+      padding:14px;
+      border:1px dashed var(--border);
+      border-radius:12px;
+      color:var(--muted);
+      background:#fafbfc;
+    }
+    .desktop-batch{display:block}
+    .mobile-batch{display:none}
+    .new-product-box.hidden-force{display:none !important}
+    .small-note{
+      font-size:12px;
+      color:var(--muted);
+      margin-top:6px;
+    }
+    @media(max-width:760px){
+      .desktop-batch{display:none}
+      .mobile-batch{display:flex;flex-direction:column;gap:10px}
+    }
+    .mobile-batch-card{
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:#fff;
+      padding:12px;
+    }
+    .mobile-line{
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:6px;
+    }
+    .mobile-line:last-child{margin-bottom:0}
+    .mobile-k{
+      font-size:12px;
+      color:var(--muted);
+      font-weight:800;
+      text-transform:uppercase;
+      letter-spacing:.04em;
+      min-width:70px;
+    }
+    .mobile-v{
+      text-align:right;
+      font-size:14px;
+      color:var(--text);
+      word-break:break-word;
+    }
+  </style>
+</head>
+<body data-page="scan">
+
+<div class="topbar no-print">
+  <div class="inner">
+    <div class="brand">
+      <div class="logo">o</div>
+      <div class="title">
+        Oegema Logistics
+        <small>Ronald Verdult Design · Voorraadbeheer</small>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <a href='/'>Dashboard</a>
+      <a href='/products'>Artikelen + Stickers</a>
+      <a href='/scan'>In-/Uitscan</a>
+      <a href='/stock'>Huidige voorraad</a>
+      <a href='/outscans'>Uitscans</a>
+    </nav>
+
+    <div class="rightbar">
+      <span class="pill"><span id="userEmail"></span></span>
+      <button class="btn" id="btnLogout" type="button">Uitloggen</button>
+    </div>
+  </div>
+</div>
+
+<div class="container scan-shell">
+  <div id="toast" class="notice"></div>
+
+  <div class="card">
+    <div class="scan-top">
+      <div>
+        <h2>In-/Uitscan</h2>
+        <div class="muted">
+          Handscanner op laptop of QR-camera op telefoon. Inslag en uitslag werken beide in batchmodus.
+        </div>
+      </div>
+      <span class="pill">Status: <b id="statusTxt">Klaar</b></span>
+    </div>
+
+    <div class="tabs" style="margin-top:16px">
+      <button class="tab active" id="tabIn" type="button">Inslag</button>
+      <button class="tab" id="tabOut" type="button">Uitslag</button>
+    </div>
+
+    <div class="row" style="margin-top:16px">
+      <div>
+        <label for="skuInput">SKU / sticker</label>
+        <input id="skuInput" class="big-input" placeholder="Scan SKU…" autocomplete="off"/>
+        <div class="scan-help">
+          Scanner-correctie actief: <b>/</b>, <b>\</b> en spaties worden automatisch hersteld.
+        </div>
+      </div>
+
+      <div>
+        <label for="locInput">Locatie</label>
+        <input id="locInput" class="big-input" placeholder="Scan locatie…" autocomplete="off"/>
+        <div class="scan-help" id="locHelp">
+          Bij inslag: scan de locatie nadat alle colli zijn toegevoegd.
+        </div>
+      </div>
+    </div>
+
+    <div id="outBlock" class="hidden" style="margin-top:12px">
+      <label for="orderInput">Ordernummer / uitslagcode</label>
+      <input id="orderInput" class="big-input" placeholder="Vul ordernummer in…" autocomplete="off"/>
+      <div class="scan-help">
+        Bij uitslag: scan eerst alle colli, vul daarna 1 ordernummer in en boek alles tegelijk uit.
+      </div>
+    </div>
+
+    <div class="scan-toolbar">
+      <button class="btn primary" id="btnGo" type="button">Batch inboeken</button>
+      <button class="btn" id="btnClear" type="button">Leegmaken</button>
+      <button class="btn ghost" id="btnQr" type="button">Start QR</button>
+    </div>
+
+    <div id="inBatchBlock" class="batch-box">
+      <div class="batch-head">
+        <div>
+          <div class="pill">Gescande colli: <b id="batchCount">0</b></div>
+          <div class="small" id="batchModeText" style="margin-top:8px">Batchmodus actief.</div>
+        </div>
+
+        <div class="batch-actions">
+          <button class="btn ghost" id="btnUndoLast" type="button">Laatste weg</button>
+          <button class="btn danger" id="btnClearBatch" type="button">Batch leegmaken</button>
+        </div>
+      </div>
+
+      <div id="batchList"></div>
+    </div>
+
+    <div id="newProductBox" class="new-product-box hidden-force">
+      <div class="new-product-head">
+        <div>
+          <b>Nieuwe SKU gevonden</b>
+          <div class="small" style="margin-top:4px">Deze SKU bestaat nog niet als artikel. Vul hieronder de gegevens in.</div>
+        </div>
+        <span class="pill">Herstel / nieuw artikel</span>
+      </div>
+
+      <div class="row">
+        <div>
+          <label for="newSkuBase">SKU basis</label>
+          <input id="newSkuBase" readonly/>
+        </div>
+        <div>
+          <label for="newSkuUnique">Gescande sticker</label>
+          <input id="newSkuUnique" readonly/>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <div>
+          <label for="newName">Omschrijving</label>
+          <input id="newName" placeholder="Bijv. Eetkamerstoel zwart"/>
+        </div>
+        <div>
+          <label for="newDescription">Overige vermelding</label>
+          <input id="newDescription" placeholder="Bijv. armleuning / stof / serie"/>
+        </div>
+      </div>
+
+      <div class="btnRow" style="margin-top:14px">
+        <button class="btn primary" id="btnSaveNewProduct" type="button">Opslaan en doorgaan</button>
+        <button class="btn" id="btnCancelNewProduct" type="button">Annuleren</button>
+      </div>
+
+      <div class="small-note">
+        Na opslaan wordt dit artikel ook zichtbaar in de dropdown van <b>Artikelen + Stickers</b>.
+      </div>
+    </div>
+
+    <div class="qr-box">
+      <div class="qr-top">
+        <div>
+          <b>QR scannen met camera</b>
+          <div class="small" style="margin-top:4px">Werkt op telefoon via HTTPS. QR vult het SKU-veld automatisch.</div>
+        </div>
+        <span class="pill">Telefoon: <b>camera toegestaan</b></span>
+      </div>
+
+      <div id="qr_reader" class="hidden" style="border-radius:14px;overflow:hidden"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+setActiveNav();
+const client = sb();
+
+const tabIn = byId('tabIn');
+const tabOut = byId('tabOut');
+const outBlock = byId('outBlock');
+const btnGo = byId('btnGo');
+const btnClear = byId('btnClear');
+const btnQr = byId('btnQr');
+const btnUndoLast = byId('btnUndoLast');
+const btnClearBatch = byId('btnClearBatch');
+
+const skuInput = byId('skuInput');
+const locInput = byId('locInput');
+const orderInput = byId('orderInput');
+const qrReader = byId('qr_reader');
+const statusTxt = byId('statusTxt');
+const batchModeText = byId('batchModeText');
+
+const inBatchBlock = byId('inBatchBlock');
+const batchCount = byId('batchCount');
+const batchList = byId('batchList');
+
+const newProductBox = byId('newProductBox');
+const newSkuBase = byId('newSkuBase');
+const newSkuUnique = byId('newSkuUnique');
+const newName = byId('newName');
+const newDescription = byId('newDescription');
+const btnSaveNewProduct = byId('btnSaveNewProduct');
+const btnCancelNewProduct = byId('btnCancelNewProduct');
+
+let mode = 'IN';
+let qr = null;
+let qrRunning = false;
+let batchSkus = [];
+let pendingNewProduct = null;
+
+function setStatus(t){
+  statusTxt.textContent = t;
+}
+
+function normalizeScan(v){
+  return String(v || '')
+    .replace(/\//g, '-')
+    .replace(/\\/g, '-')
+    .replace(/\s+/g, '')
+    .trim()
+    .toUpperCase();
+}
+
+function normalizeLocation(v){
+  return String(v || '').trim().toUpperCase();
+}
+
+function getSkuBaseFromUnique(skuUnique){
+  const parts = String(skuUnique || '').split('-').filter(Boolean);
+  if(parts.length < 2) return String(skuUnique || '').trim().toUpperCase();
+
+  if(parts.length >= 4){
+    return parts.slice(0, -1).join('-').toUpperCase();
+  }
+
+  return parts.join('-').toUpperCase();
+}
+
+function setMode(m){
+  mode = m;
+
+  tabIn.classList.toggle('active', m === 'IN');
+  tabOut.classList.toggle('active', m === 'OUT');
+
+  outBlock.classList.toggle('hidden', m !== 'OUT');
+  inBatchBlock.classList.remove('hidden');
+
+  btnGo.textContent = m === 'IN' ? 'Batch inboeken' : 'Batch uitboeken';
+  batchModeText.textContent = m === 'IN'
+    ? 'Inslag batchmodus: scan meerdere colli, daarna 1 locatie.'
+    : 'Uitslag batchmodus: scan meerdere colli, daarna 1 ordernummer.';
+
+  clearForm(true);
+  hideNewProductBox();
+  skuInput.focus();
+}
+
+function clearForm(clearBatchToo = true){
+  skuInput.value = '';
+  locInput.value = '';
+  orderInput.value = '';
+
+  if(clearBatchToo){
+    batchSkus = [];
+    renderBatch();
+  }
+
+  pendingNewProduct = null;
+  hideNewProductBox();
+
+  setStatus('Klaar');
+  skuInput.focus();
+}
+
+function renderBatch(){
+  batchCount.textContent = String(batchSkus.length);
+
+  if(!batchSkus.length){
+    batchList.innerHTML = `<div class="batch-empty">Nog geen colli gescand in deze batch.</div>`;
+    return;
+  }
+
+  batchList.innerHTML = `
+    <div class="table-wrap desktop-batch">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>SKU</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${batchSkus.map((sku, i) => `
+            <tr>
+              <td>${i + 1}</td>
+              <td><b>${escapeHtml(sku)}</b></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mobile-batch">
+      ${batchSkus.map((sku, i) => `
+        <div class="mobile-batch-card">
+          <div class="mobile-line">
+            <div class="mobile-k">Nr</div>
+            <div class="mobile-v">${i + 1}</div>
+          </div>
+          <div class="mobile-line">
+            <div class="mobile-k">SKU</div>
+            <div class="mobile-v"><b>${escapeHtml(sku)}</b></div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function showNewProductBox(skuBase, skuUnique){
+  newSkuBase.value = skuBase || '';
+  newSkuUnique.value = skuUnique || '';
+  newName.value = skuBase || '';
+  newDescription.value = '';
+  newProductBox.classList.remove('hidden-force');
+  newName.focus();
+}
+
+function hideNewProductBox(){
+  newProductBox.classList.add('hidden-force');
+  newSkuBase.value = '';
+  newSkuUnique.value = '';
+  newName.value = '';
+  newDescription.value = '';
+}
+
+async function getProductBySkuBase(skuBase){
+  const { data, error } = await client
+    .from('products')
+    .select('id, sku_base, name, description')
+    .eq('sku_base', skuBase)
+    .maybeSingle();
+
+  if(error) throw error;
+  return data || null;
+}
+
+async function createProductFromScan(skuBase, name, description){
+  const { data, error } = await client
+    .from('products')
+    .insert([{
+      sku_base: skuBase,
+      name: (name || skuBase).trim(),
+      description: (description || '').trim()
+    }])
+    .select()
+    .single();
+
+  if(error) throw error;
+  return data;
+}
+
+async function getItemBySkuUnique(skuUnique){
+  const { data, error } = await client
+    .from('items')
+    .select('id, product_id, sku_unique, status, location, in_at, out_at, created_at')
+    .eq('sku_unique', skuUnique)
+    .maybeSingle();
+
+  if(error) throw error;
+  return data || null;
+}
+
+async function createItemFromScan(productId, skuUnique){
+  const { data, error } = await client
+    .from('items')
+    .insert([{
+      product_id: productId,
+      sku_unique: skuUnique,
+      status: 'CREATED'
+    }])
+    .select()
+    .single();
+
+  if(error) throw error;
+  return data;
+}
+
+async function ensureProductAndItemForScan(skuUnique){
+  const skuBase = getSkuBaseFromUnique(skuUnique);
+
+  let product = await getProductBySkuBase(skuBase);
+
+  if(!product){
+    pendingNewProduct = { skuBase, skuUnique };
+    showNewProductBox(skuBase, skuUnique);
+    return { needsProduct: true, product: null, item: null };
+  }
+
+  let item = await getItemBySkuUnique(skuUnique);
+  if(!item){
+    item = await createItemFromScan(product.id, skuUnique);
+  }
+
+  return { needsProduct: false, product, item };
+}
+
+async function doInSingle(skuUnique, location){
+  const ensured = await ensureProductAndItemForScan(skuUnique);
+  if(ensured.needsProduct){
+    throw new Error(`Nieuwe SKU gevonden: ${getSkuBaseFromUnique(skuUnique)}. Vul eerst omschrijving in.`);
+  }
+
+  let item = ensured.item;
+  if(!item){
+    item = await getItemBySkuUnique(skuUnique);
+  }
+
+  if(!item) throw new Error(`Item kon niet worden aangemaakt: ${skuUnique}`);
+  if(item.status === 'IN_STOCK') throw new Error(`Item staat al op voorraad: ${skuUnique}`);
+
+  const { error:uErr } = await client
+    .from('items')
+    .update({
+      status:'IN_STOCK',
+      location,
+      in_at:new Date().toISOString(),
+      out_at:null
+    })
+    .eq('id', item.id);
+
+  if(uErr) throw uErr;
+
+  const { error:mErr } = await client
+    .from('movements')
+    .insert([{
+      type:'IN',
+      product_id:item.product_id,
+      sku_unique:skuUnique,
+      location,
+      order_no:null
+    }]);
+
+  if(mErr) throw mErr;
+}
+
+async function doBatchIn(location){
+  if(!batchSkus.length){
+    throw new Error('Scan eerst één of meerdere SKU’s.');
+  }
+
+  for(const skuUnique of batchSkus){
+    await doInSingle(skuUnique, location);
+  }
+}
+
+async function doOutSingle(skuUnique, orderNo, locationOpt){
+  const item = await getItemBySkuUnique(skuUnique);
+  if(!item) throw new Error(`SKU bestaat niet: ${skuUnique}`);
+  if(item.status !== 'IN_STOCK') throw new Error(`Uitslag niet mogelijk: ${skuUnique} staat niet op voorraad.`);
+
+  const { error:uErr } = await client
+    .from('items')
+    .update({
+      status:'OUT',
+      out_at:new Date().toISOString()
+    })
+    .eq('id', item.id);
+
+  if(uErr) throw uErr;
+
+  const { error:mErr } = await client
+    .from('movements')
+    .insert([{
+      type:'OUT',
+      product_id:item.product_id,
+      sku_unique:skuUnique,
+      location: locationOpt || item.location || null,
+      order_no: orderNo
+    }]);
+
+  if(mErr) throw mErr;
+}
+
+async function doBatchOut(orderNo, locationOpt){
+  if(!batchSkus.length){
+    throw new Error('Scan eerst één of meerdere SKU’s.');
+  }
+
+  const used = await countOrderUses(client, orderNo).catch(() => 0);
+  if(used > 0){
+    const ok = confirm(`Ordernummer ${orderNo} is al ${used}x gebruikt. Doorgaan?`);
+    if(!ok) return false;
+  }
+
+  for(const skuUnique of batchSkus){
+    await doOutSingle(skuUnique, orderNo, locationOpt);
+  }
+
+  return true;
+}
+
+async function doProcess(){
+  const loc = normalizeLocation(locInput.value);
+  const orderNo = (orderInput.value || '').trim();
+
+  try{
+    if(mode === 'IN'){
+      if(!loc) return toast('Locatie is verplicht bij inslag.','err');
+
+      setStatus('Batch inboeken…');
+      await doBatchIn(loc);
+
+      toast(`${batchSkus.length} colli ingeboekt op locatie ${loc}.`,'ok');
+
+      batchSkus = [];
+      renderBatch();
+      skuInput.value = '';
+      locInput.value = '';
+      orderInput.value = '';
+      setStatus('Klaar');
+      skuInput.focus();
+    } else {
+      if(!orderNo) return toast('Ordernummer is verplicht bij uitslag.','err');
+
+      setStatus('Batch uitboeken…');
+      const completed = await doBatchOut(orderNo, loc);
+      if(completed === false){
+        setStatus('Klaar');
+        return;
+      }
+
+      toast(`${batchSkus.length} colli uitgeboekt op order ${orderNo}.`,'ok');
+
+      batchSkus = [];
+      renderBatch();
+      skuInput.value = '';
+      locInput.value = '';
+      orderInput.value = '';
+      setStatus('Klaar');
+      skuInput.focus();
+    }
+  } catch(e){
+    setStatus('Fout');
+    toast(e.message || String(e), 'err');
+  }
+}
+
+async function addSkuToBatch(){
+  const sku = cleanSku(normalizeScan(skuInput.value));
+  if(!sku) return;
+
+  if(batchSkus.includes(sku)){
+    toast(`SKU ${sku} is al gescand in deze batch.`, 'err');
+    skuInput.value = '';
+    skuInput.focus();
+    return;
+  }
+
+  if(mode === 'IN'){
+    const skuBase = getSkuBaseFromUnique(sku);
+    const product = await getProductBySkuBase(skuBase);
+
+    if(!product){
+      pendingNewProduct = { skuBase, skuUnique: sku };
+      showNewProductBox(skuBase, sku);
+      return;
+    }
+  }
+
+  batchSkus.push(sku);
+  renderBatch();
+  skuInput.value = '';
+  skuInput.focus();
+  setStatus(`${batchSkus.length} colli gescand`);
+}
+
+async function savePendingNewProduct(){
+  if(!pendingNewProduct){
+    toast('Geen nieuwe SKU om op te slaan.','err');
+    return;
+  }
+
+  const skuBase = (newSkuBase.value || '').trim().toUpperCase();
+  const skuUnique = (newSkuUnique.value || '').trim().toUpperCase();
+  const name = (newName.value || '').trim();
+  const description = (newDescription.value || '').trim();
+
+  if(!skuBase) return toast('SKU basis ontbreekt.','err');
+  if(!skuUnique) return toast('Gescande sticker ontbreekt.','err');
+  if(!name) return toast('Vul een omschrijving in.','err');
+
+  try{
+    let product = await getProductBySkuBase(skuBase);
+    if(!product){
+      product = await createProductFromScan(skuBase, name, description);
+    }
+
+    let item = await getItemBySkuUnique(skuUnique);
+    if(!item){
+      await createItemFromScan(product.id, skuUnique);
+    } else if(!item.product_id){
+      const { error } = await client
+        .from('items')
+        .update({ product_id: product.id })
+        .eq('id', item.id);
+      if(error) throw error;
+    }
+
+    if(!batchSkus.includes(skuUnique)){
+      batchSkus.push(skuUnique);
+    }
+
+    renderBatch();
+    hideNewProductBox();
+    pendingNewProduct = null;
+    skuInput.value = '';
+    setStatus(`${batchSkus.length} colli gescand`);
+    toast(`Artikel ${skuBase} opgeslagen en toegevoegd aan batch.`,'ok');
+    skuInput.focus();
+  } catch(e){
+    toast(e.message || String(e),'err');
+  }
+}
+
+async function toggleQR(){
+  if(typeof Html5Qrcode !== 'function'){
+    return toast('QR library ontbreekt.','err');
+  }
+
+  if(!qr){
+    qr = new Html5Qrcode('qr_reader');
+  }
+
+  if(!qrRunning){
+    qrReader.classList.remove('hidden');
+    btnQr.textContent = 'Stop QR';
+
+    try{
+      const cams = await Html5Qrcode.getCameras();
+      if(!cams || !cams.length) throw new Error('Geen camera gevonden');
+
+      const preferred = cams.find(c => /back|rear|environment/i.test(c.label)) || cams[0];
+
+      qrRunning = true;
+      await qr.start(
+        preferred.id,
+        { fps: 10, qrbox: { width: 260, height: 260 } },
+        async (decodedText) => {
+          const fixed = cleanSku(normalizeScan(decodedText));
+          skuInput.value = fixed;
+
+          stopQR().catch(() => {});
+
+          try{
+            await addSkuToBatch();
+
+            if(mode === 'OUT'){
+              orderInput.focus();
+            }
+          } catch(e){
+            toast(e.message || String(e),'err');
+          }
+
+          toast('QR gelezen.','ok');
+        }
+      );
+
+      setStatus('QR actief');
+    } catch(e){
+      qrRunning = false;
+      qrReader.classList.add('hidden');
+      btnQr.textContent = 'Start QR';
+      setStatus('Fout');
+      toast('Camera start niet. Gebruik https en sta camera toe.','err');
+    }
+  } else {
+    await stopQR();
+  }
+}
+
+async function stopQR(){
+  try{
+    if(qr && qrRunning){
+      await qr.stop();
+    }
+  } catch(_) {}
+
+  qrRunning = false;
+  qrReader.classList.add('hidden');
+  btnQr.textContent = 'Start QR';
+  setStatus('Klaar');
+}
+
+tabIn.addEventListener('click', () => setMode('IN'));
+tabOut.addEventListener('click', () => setMode('OUT'));
+
+btnClear.addEventListener('click', () => clearForm(true));
+btnGo.addEventListener('click', doProcess);
+btnQr.addEventListener('click', () => toggleQR());
+
+btnUndoLast.addEventListener('click', () => {
+  if(!batchSkus.length) return;
+  batchSkus.pop();
+  renderBatch();
+  setStatus(batchSkus.length ? `${batchSkus.length} colli gescand` : 'Klaar');
+  skuInput.focus();
+});
+
+btnClearBatch.addEventListener('click', () => {
+  batchSkus = [];
+  renderBatch();
+  setStatus('Klaar');
+  skuInput.focus();
+});
+
+btnSaveNewProduct.addEventListener('click', () => {
+  savePendingNewProduct();
+});
+
+btnCancelNewProduct.addEventListener('click', () => {
+  hideNewProductBox();
+  pendingNewProduct = null;
+  skuInput.value = '';
+  skuInput.focus();
+});
+
+skuInput.addEventListener('input', () => {
+  skuInput.value = normalizeScan(skuInput.value);
+});
+
+skuInput.addEventListener('keydown', async e => {
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    try{
+      await addSkuToBatch();
+
+      if(mode === 'OUT'){
+        orderInput.focus();
+      }
+    } catch(err){
+      toast(err.message || String(err), 'err');
+    }
+  }
+});
+
+locInput.addEventListener('keydown', e => {
+  if(e.key === 'Enter'){
+    e.preventDefault();
+
+    if(mode === 'IN'){
+      doProcess();
+    } else {
+      orderInput.focus();
+    }
+  }
+});
+
+orderInput.addEventListener('keydown', e => {
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    doProcess();
+  }
+});
+
+newName.addEventListener('keydown', e => {
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    savePendingNewProduct();
+  }
+});
+
+newDescription.addEventListener('keydown', e => {
+  if(e.key === 'Enter'){
+    e.preventDefault();
+    savePendingNewProduct();
+  }
+});
+
+setMode('IN');
+renderBatch();
+clearForm(false);
+</script>
+</body>
+</html>

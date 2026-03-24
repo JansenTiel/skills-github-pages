@@ -1,0 +1,34 @@
+<!doctype html><html lang="nl"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Dashboard · Ronald Verdult</title>
+<link rel="stylesheet" href="/css/theme.css"/>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/js/supabase.js"></script><script src="/js/app.js"></script><script src="/js/auth.js"></script>
+</head><body data-page="dashboard">
+<div class="topbar no-print"><div class="inner"><div class="brand"><div class="logo">o</div><div class="title">Oegema Logistics <small>Ronald Verdult Design · Voorraadbeheer</small></div></div><nav class="nav"><a href="/index.html">Dashboard</a><a href="/products.html">Artikelen + Stickers</a><a href="/scan.html">In-/Uitscan</a><a href="/stock.html">Huidige voorraad</a><a href="/outscans.html">Uitscans</a></nav><div class="rightbar"><span class="pill"><span id="userEmail"></span></span><button class="btn" id="btnLogout" type="button">Uitloggen</button></div></div></div>
+<div class="container"><div id="toast" class="notice"></div><div class="grid">
+<div class="card" style="grid-column:span 12"><h2>Dashboard</h2><div class="muted">Compact overzicht in Oegema-opzet met Ronald Verdult Design uitstraling.</div><div class="btnRow" style="margin-top:14px"><a class="btn primary" href="/products.html">Artikelen + Stickers</a><a class="btn" href="/scan.html">Scan</a><a class="btn" href="/stock.html">Voorraad</a><a class="btn" href="/outscans.html">Uitscans</a></div></div>
+<div class="card" style="grid-column:span 3"><div class="kpi"><div class="label">Producten</div><div class="value" id="kpiProducts">-</div></div></div>
+<div class="card" style="grid-column:span 3"><div class="kpi"><div class="label">Items op voorraad</div><div class="value" id="kpiStock">-</div></div></div>
+<div class="card" style="grid-column:span 3"><div class="kpi"><div class="label">Totale uitscans</div><div class="value" id="kpiOut">-</div></div></div>
+<div class="card" style="grid-column:span 3"><div class="kpi"><div class="label">Laatste uitscan</div><div class="value" id="kpiLastOut" style="font-size:16px">-</div></div></div>
+<div class="card" style="grid-column:span 12"><h3>Werking</h3><div class="row-3"><div><b>Artikelen + Stickers</b><div class="muted">Maak artikelen aan en genereer unieke stickers als downloadbare PDF van 14 × 11 cm.</div></div><div><b>Scan</b><div class="muted">Werkt met handscanner op laptop en QR via telefooncamera op de website.</div></div><div><b>Voorraad / Uitscans</b><div class="muted">Compacte overzichten met filter op ordernummer, SKU en omschrijving.</div></div></div></div>
+</div></div>
+<script>
+setActiveNav();
+(async()=>{
+  try{
+    const client = sb();
+    const [{count:pCount},{count:iCount},{count:oCount},{data:lastOut}] = await Promise.all([
+      client.from('products').select('*',{count:'exact',head:true}),
+      client.from('items').select('*',{count:'exact',head:true}).eq('status','IN_STOCK'),
+      client.from('movements').select('*',{count:'exact',head:true}).eq('type','OUT'),
+      client.from('movements').select('created_at,order_no,sku_unique').eq('type','OUT').order('created_at',{ascending:false}).limit(1).maybeSingle()
+    ]);
+    byId('kpiProducts').textContent = pCount || 0;
+    byId('kpiStock').textContent = iCount || 0;
+    byId('kpiOut').textContent = oCount || 0;
+    byId('kpiLastOut').textContent = lastOut ? `${lastOut.sku_unique} · ${lastOut.order_no || '-'}\n${nlTime(lastOut.created_at)}` : 'Nog geen';
+  }catch(e){ toast(e.message || String(e), 'err'); }
+})();
+</script></body></html>
